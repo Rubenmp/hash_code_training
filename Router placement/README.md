@@ -16,11 +16,10 @@ g++ -std=c++11 ./main.cpp    -o main
 ```
 
 ### Score
-| Input file | Points  |
--------------------------------------
+| Input file          | Points      |
+|---------------------|-------------|
 | charleston_road.in: | 21 636 717  |
 | lets_go_higher.in:  | 208 652 457 |
 | opera.in:           | 155 893 092 |
 | rue_de_londres.in:  | 38 707 005  |
-
 | Total:              | 424 889 271 |
