@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <cstdlib>
+#include <fstream>
 #include <ctime>
 
 using namespace std;
@@ -41,6 +42,11 @@ struct Point{
   Point(int a, int b):x(a),y(b){}
   Point():x(-1),y(-1){}
 };
+std::ostream& operator<<(std::ostream& os, const Point& p){
+  os << "(" << p.x << "," << p.y << ")";
+      return(os);
+}
+Point backbone;
 struct Path{
   Point initial, end;
   int cost;
@@ -72,7 +78,7 @@ struct Path{
         else if (abs(initial.y-end.y) > minimum)
           next.y += increase_y;
       }
-      if (connections[next.x][next.y]){
+      if (connections[next.x][next.y] or (next.x==backbone.x and next.y==backbone.y)){
         possible = false;
         break;
       }
@@ -97,8 +103,12 @@ struct Path{
   }
 
 };
-Point backbone;
-const int NPATHS = 4;
+std::ostream& operator<<(std::ostream& os, const Path& p){
+  for (Point point : p.points)
+    os << point << "-";
+  return(os);
+}
+const int NPATHS = 400;
 std::vector<Path> paths[NPATHS];
 
 
@@ -111,7 +121,7 @@ int cells_to_connect(Point backbone, Point router);
 int exists_wall(Point one, Point two);
 int increase_signal(Point p);
 void place_router(Point p);
-
+bool valid_point(Point p);
 
 
 bool is_covered(Point router, Point other){
@@ -167,14 +177,17 @@ int exists_wall(Point one, Point two){
 int increase_signal(Point p){
   // how many cells of signal we would obtain placing a router at p
   int inc = 0;
+  int total = 0;
   for (int i=-r; i<=r; ++i){
     for (int j=-r; j<=r; ++j){
+      total+=1;
       int x = p.x+i, y = p.y+j;
 
-      if (x>=0 and y>=0 and x<=h and y<=w){
+      if (valid_point(Point(x,y))){
         if (building[x][y] == target and !signal[x][y]){
-          if (exists_wall(p, Point(x,y)) == false)
+          if (exists_wall(p, Point(x,y)) == false){
             ++inc;
+          }
         }
       }
     }
@@ -200,7 +213,9 @@ void place_router(Point p){
     }
   }
 }
-
+bool valid_point(Point p){
+  return( p.x>=0 and p.x<h and p.y>=0 and p.y<w );
+}
 void precomp() {
   // Cumulative_walls
   for (int i=0,j=0; i<h && j<w; i++,j++)
@@ -228,7 +243,6 @@ void precomp() {
     signal[i][j] = 0;
   }
 }
-
 void input() {
   char aux;
   cin >> h >> w >> r;
@@ -248,7 +262,6 @@ void input() {
     }
   }
 }
-
 void sol() {
   bool finish = false;
   /*bool used[NPATHS], first_routers_placed = false;
@@ -264,58 +277,128 @@ void sol() {
   increase[3][1] = 1;
   */
 
-  Point previous_r(backbone.x, backbone.y);
+  Point previous_r;
   Point next_router;
   Path next_path;
   int new_signal, max_signal;
 
+  int current_threat = 0;
+  bool new_threat = true;
   while (!finish){
+    bool change = false;
+
+    if (new_threat){
+      previous_r.x = backbone.x;
+      previous_r.y = backbone.y;
+      new_threat = false;
+    }
+
     max_signal = 0;
-    for (int i=-r,j=-r; i<=r and j<=r; ++i,++j){
-      Point p(previous_r.x + i, previous_r.y + j);
+    for (int i=-3*r; i<=3*r; ++i){
+      for (int j=-3*r; j<=3*r; ++j){
+        Point next(previous_r.x + i, previous_r.y + j);
+        if (valid_point(next)){
+          if (building[next.x][next.y] != wall){
+            new_signal = increase_signal(next);
+            if (new_signal > max_signal){
+              Path path(previous_r, next);
 
-      if (building[p.x][p.y] != wall){
-        new_signal = increase_signal(p);
-        //cerr << new_signal << endl;
-        if (new_signal > max_signal){
-          next_router.x = previous_r.x + i;
-          next_router.y = previous_r.y + j;
-          Path path(previous_r, next_router);
-
-          if (path.possible and (path.cost <= (b-current_b)) ){
-            next_router = p;
-            next_path = path;
-            max_signal = new_signal;
+              if (path.possible and (path.cost <= (b-current_b)) ){
+                next_path = path;
+                max_signal = new_signal;
+                next_router = next;
+                change = true;
+              }
+            }
           }
         }
-
-
       }
     }
-    if (max_signal == 0)
-      finish = true;
+    if (max_signal == 0){
+      if ((b-current_b) > 2*pr and change){
+        ++current_threat;
+        new_threat = true;
+      }
+      else
+        finish = true;
+    }
     else{
       place_router(next_router);
       previous_r = next_router;
-      paths[0].push_back(next_path);
+      paths[current_threat].push_back(next_path);
+      current_b += next_path.cost;
     }
 
   }
+  cerr << current_threat << endl;
 }
 
-int score(){
-  // not finish
-  int score = b-current_b;
+int n,m;
+bool valid_output(string file){
+  int previous_x=-1, previous_y=-1, x, y;
+  ifstream ifs (file);
+  bool valid;
+  bool local_connection[N_MAX][N_MAX];
 
-  std::vector<Point> p_routers;
-  std::vector<Point> p_connections;
-  for (int i=0; i<h; i++){
-    for(int j=0; j<w; j++){
-      if (routers[i][j])
-        p_routers.push_back(Point(i,j));
+  for (int i=0,j=0; i<h and j<w; ++i,++j)
+    local_connection[i][j] = false;
+
+  ifs >> n;
+  for (int i=0; i<n; ++i){
+    valid = false;
+    ifs >> x >> y;
+    if (x != backbone.x or y != backbone.y){
+      if (abs(x-backbone.x)<=1 and abs(y-backbone.y)<=1){
+        local_connection[x][y] = true;
+        valid = true;
+      }
+      else if (abs(x-previous_x)<=1 and abs(y-previous_y)<=1){
+        local_connection[x][y] = true;
+        valid = true;
+      }
+    }
+
+    if (!valid){
+      cerr << "Error in output, first condition"<< endl;
+      cerr << previous_x << " " << previous_y << ".." << x <<" "<<y<<"-->" <<backbone.x<<" "<<backbone.y<<endl;
+      return(false);
+    }
+
+    previous_x = x;
+    previous_y = y;
+  }
+
+  ifs >> m;
+  for (int i=0; i<m; ++i){
+    ifs >> x >> y;
+    if (local_connection[x][y] == false or building[x][y] == wall){
+      cerr << "Error in output, second condition"<< endl;
+      return(false);
+    }
+  }
+  ifs.close();
+
+  if (n*pb+m*pr > b){
+    cerr << "Error in output, third condition"<< endl;
+    return(false);
+  }
+
+  return(true);
+}
+int score(string file){
+  int score = 0;
+  if (valid_output(file)){
+    score = b-current_b;
+
+    for (int i=0; i<h; i++){
+      for(int j=0; j<w; j++){
+        if (signal[i][j])
+          score += 1000;
+      }
     }
   }
 
+  return(score);
 }
 
 void debug() {
@@ -342,13 +425,21 @@ void print_sol() {
 
   // print p_connections
   int total = 0;
-  for (auto s : paths[0])
-    total += s.points.size();
+  for (int i=0; i<NPATHS; ++i){
+    if (paths[i].size() > 0){
+      for (auto s : paths[i])
+        total += s.points.size();
+    }
+  }
 
   cout << total << endl;
-  for (auto p : paths[0]){
-    for (auto s : p.points)
-      cout << s.x << " " << s.y << endl;
+  for (int i=0; i<NPATHS; ++i){
+    if (paths[i].size() > 0){
+      for (auto p : paths[i]){
+        for (auto s : p.points)
+          cout << s.x << " " << s.y << endl;
+      }
+    }
   }
 
   // print Routers
@@ -358,8 +449,11 @@ void print_sol() {
 
 }
 
+
 signed main(int argc, char *argv[]) {
   // Files: https://hashcode.withgoogle.com/past_editions.html
+
+  bool debugging = false;
   const char * file_in = argv[1];
   const char * file_out = argv[2];
 
@@ -368,8 +462,6 @@ signed main(int argc, char *argv[]) {
   freopen(file_in, "r", stdin);
   freopen(file_out, "w", stdout);
 
-
-
   // Start computations
   input();
   precomp();
@@ -377,6 +469,18 @@ signed main(int argc, char *argv[]) {
   sol();
   print_sol();
   // End computations
+
+  int t=0;
+  for (int i=0; i<h; ++i){
+    for (int j=0; j<w; ++j)
+      if (building[i][j] == target)
+        t += 1000;
+  }
+  cerr << t << "/" << b <<endl;
+  cerr << score(file_out)<< "/"<< current_b << endl;
+  if (debugging)
+    if (valid_output(file_out))
+      cerr << "hiphip" <<endl;
 
   return 0;
 }
